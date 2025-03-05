@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Tools</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            width: 400px;
+            padding: 10px;
+            background: #121212;
+            /* Dark Mode */
+            color: white;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 600px;
+            box-sizing: border-box;
+        }
+
+        .toggle-container {
+            display: flex;
+            margin-bottom: 15px;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+
+        .toggle-btn {
+            flex: 1;
+            padding: 10px;
+            text-align: center;
+            cursor: pointer;
+            background: #333;
+            transition: background 0.3s;
+            border: none;
+            color: white;
+        }
+
+        .toggle-btn.active {
+            background: #25D366;
+            /* WhatsApp Green */
+            font-weight: bold;
+        }
+
+        .tool-container {
+            display: none;
+            flex-direction: column;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .tool-container.active {
+            display: flex;
+        }
+
+        button {
+            padding: 10px;
+            margin-top: 10px;
+            cursor: pointer;
+            border: none;
+            font-size: 14px;
+            border-radius: 5px;
+            color: white;
+        }
+
+        .green-btn {
+            background: #25D366;
+            /* WhatsApp Green */
+        }
+
+        .blue-btn {
+            background: #007BFF;
+            /* Blue */
+        }
+
+        h2 {
+            margin: 0;
+            padding-bottom: 10px;
+        }
+
+        /* Extractor Styles */
+        #content {
+            margin-top: 10px;
+            font-size: 16px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            flex: 1;
+            overflow-y: auto;
+            border: 1px solid #333;
+            padding: 10px;
+            background: #1e1e1e;
+            text-align: left;
+            color: white;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+
+        #content::-webkit-scrollbar {
+            display: none;
+        }
+
+        /* Bulk Sender Styles */
+        textarea {
+            width: 100%;
+            margin: 10px 0;
+            background: #1e1e1e;
+            color: white;
+            border: 1px solid #333;
+            padding: 8px;
+            border-radius: 5px;
+            box-sizing: border-box;
+            resize: vertical;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            line-height: 1.4;
+            outline: none;
+            /* Remove the default focus outline */
+        }
+
+        textarea:focus {
+            border-color: #25D366;
+            /* Optional: change border color when focused to something subtle */
+        }
+
+        #numbers,
+        #message {
+            height: 100px;
+            min-height: 80px;
+        }
+
+
+
+        #numberCount {
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+
+        #status {
+            margin-top: 10px;
+            background: #1e1e1e;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            white-space: pre-line;
+            height: 150px;
+            border: 1px solid #333;
+            overflow-y: auto;
+            box-sizing: border-box;
+            flex: 1;
+        }
+
+        #progress {
+            margin-top: 10px;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #timeRemaining {
+            font-weight: normal;
+            font-size: 14px;
+            color: #aaa;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Toggle Buttons -->
+    <div class="toggle-container">
+        <button id="extractorToggle" class="toggle-btn active">Number Extractor</button>
+        <button id="senderToggle" class="toggle-btn">Bulk Sender</button>
+    </div>
+
+    <!-- Extractor Tool -->
+    <div id="extractorTool" class="tool-container active">
+        <h2>Extracted Numbers</h2>
+        <button id="extract" class="green-btn">Extract</button>
+        <div id="content">Click "Extract" to get numbers.</div>
+        <button id="copy" class="blue-btn">Copy to Clipboard</button>
+        <button id="transferToSender" class="blue-btn">Transfer to Bulk Sender</button>
+    </div>
+
+    <!-- Bulk Sender Tool -->
+    <div id="senderTool" class="tool-container">
+        <h2>WhatsApp Bulk Messenger</h2>
+        <textarea id="numbers" placeholder="Enter phone numbers (comma/new lines)"></textarea>
+        <div id="numberCount">Total Numbers: 0</div>
+        <textarea id="message" placeholder="Enter your message"></textarea>
+        <button id="start" class="green-btn">Start Sending</button>
+        <div id="status"></div>
+        <div id="progress">
+            <span>Sent: 0 | Remaining: 0</span>
+            <div>
+                <span>Remaining time: </span>
+                <span id="timeRemaining">00:00:00</span>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+
+</html>
