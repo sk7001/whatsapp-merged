@@ -11,7 +11,6 @@
             width: 400px;
             padding: 10px;
             background: #121212;
-            /* Dark Mode */
             color: white;
             margin: 0;
             display: flex;
@@ -22,14 +21,16 @@
 
         .toggle-container {
             display: flex;
-            margin-bottom: 15px;
+            margin-bottom: 10px;
+            /* Reduced from 15px */
             border-radius: 5px;
             overflow: hidden;
         }
 
         .toggle-btn {
             flex: 1;
-            padding: 10px;
+            padding: 8px;
+            /* Reduced from 10px */
             text-align: center;
             cursor: pointer;
             background: #333;
@@ -56,11 +57,14 @@
         }
 
         button {
-            padding: 10px;
-            margin-top: 10px;
+            padding: 8px;
+            /* Reduced from 10px */
+            margin-top: 8px;
+            /* Reduced from 10px */
             cursor: pointer;
             border: none;
-            font-size: 14px;
+            font-size: 13px;
+            /* Reduced from 14px */
             border-radius: 5px;
             color: white;
         }
@@ -77,19 +81,24 @@
 
         h2 {
             margin: 0;
-            padding-bottom: 10px;
+            padding-bottom: 5px;
+            /* Reduced from 10px */
+            font-size: 18px;
+            /* Slightly smaller */
         }
 
         /* Extractor Styles */
         #content {
-            margin-top: 10px;
+            margin-top: 8px;
+            /* Reduced from 10px */
             font-size: 16px;
             white-space: pre-wrap;
             word-wrap: break-word;
             flex: 1;
             overflow-y: auto;
             border: 1px solid #333;
-            padding: 10px;
+            padding: 8px;
+            /* Reduced from 10px */
             background: #1e1e1e;
             text-align: left;
             color: white;
@@ -104,7 +113,8 @@
         /* Bulk Sender Styles */
         textarea {
             width: 100%;
-            margin: 10px 0;
+            margin: 5px 0;
+            /* Reduced from 10px */
             background: #1e1e1e;
             color: white;
             border: 1px solid #333;
@@ -126,53 +136,103 @@
 
         #numbers,
         #message {
-            height: 100px;
-            min-height: 80px;
+            height: 80px;
+            /* Reduced from 100px */
+            min-height: 60px;
+            /* Reduced from 80px */
         }
 
         #numberCount {
-            margin-bottom: 10px;
+            margin-bottom: 5px;
+            /* Reduced from 10px */
             font-weight: bold;
         }
 
-        #status {
-            margin-top: 10px;
+        /* Log Tabs */
+        .log-tabs {
+            display: flex;
+            margin-top: 8px;
+            /* Reduced from 10px */
+            border-bottom: 1px solid #333;
+        }
+
+        .log-tab {
+            background: #333;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            /* Reduced from 8px 15px */
+            margin-top: 0;
+            margin-right: 5px;
+            cursor: pointer;
+            border-radius: 5px 5px 0 0;
+            font-size: 12px;
+        }
+
+        .log-tab.active {
             background: #1e1e1e;
-            padding: 10px;
-            border-radius: 5px;
+            border: 1px solid #333;
+            border-bottom: none;
+        }
+
+        .log-container {
+            display: none;
+            margin-top: 0;
+            background: #1e1e1e;
+            padding: 8px;
+            /* Reduced from 10px */
+            border-radius: 0 0 5px 5px;
             font-family: monospace;
             white-space: pre-line;
-            height: 150px;
+            height: 280px;
+            /* Increased from 250px */
             border: 1px solid #333;
+            border-top: none;
             overflow-y: auto;
             box-sizing: border-box;
             flex: 1;
         }
 
+        .log-container.active {
+            display: block;
+        }
+
+        #failedNumbers {
+            color: #ff6b6b;
+        }
+
         #progress {
-            margin-top: 10px;
+            margin-top: 5px;
+            /* Reduced from 10px */
             font-weight: bold;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            font-size: 13px;
+            /* Slightly smaller */
         }
 
         #timeRemaining {
             font-weight: normal;
-            font-size: 14px;
+            font-size: 13px;
+            /* Reduced from 14px */
             color: #aaa;
         }
 
         #copyright {
-            margin-top: 15px;
-            padding: 10px 0;
-            font-size: 12px;
+            margin-top: 10px;
+            /* Reduced from 15px */
+            padding: 5px 0;
+            /* Reduced from 10px */
+            font-size: 11px;
+            /* Reduced from 12px */
             color: #888;
             text-align: center;
             border-top: 1px solid #333;
             line-height: 1.5;
         }
     </style>
+
 </head>
 
 <body>
@@ -198,7 +258,17 @@
         <div id="numberCount">Total Numbers: 0</div>
         <textarea id="message" placeholder="Enter your message"></textarea>
         <button id="start" class="green-btn">Start Sending</button>
-        <div id="status"></div>
+
+        <!-- Log Tabs -->
+        <div class="log-tabs">
+            <button id="logTab" class="log-tab active">Activity Log</button>
+            <button id="failedTab" class="log-tab">Failed Numbers</button>
+        </div>
+
+        <!-- Log Containers -->
+        <div id="status" class="log-container active"></div>
+        <div id="failedNumbers" class="log-container">No failed numbers yet.</div>
+
         <div id="progress">
             <span>Sent: 0 | Remaining: 0</span>
             <div>
