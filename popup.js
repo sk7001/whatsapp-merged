@@ -1,3 +1,51 @@
+// IndexedDB setup
+const dbName = "WhatsAppToolsDB";
+const dbVersion = 1;
+let db;
+
+console.log(typeof XLSX)
+
+// Initialize the database
+function initDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(dbName, dbVersion);
+
+    request.onerror = (event) => {
+      console.error("IndexedDB error:", event.target.error);
+      reject("Could not open database");
+    };
+
+    request.onsuccess = (event) => {
+      db = event.target.result;
+      console.log("Database opened successfully");
+      resolve(db);
+    };
+
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+
+      // Create an object store for message history
+      if (!db.objectStoreNames.contains("messageHistory")) {
+        const store = db.createObjectStore("messageHistory", { keyPath: "id", autoIncrement: true });
+
+        // Create indexes for faster queries
+        store.createIndex("phoneNumber", "phoneNumber", { unique: false });
+        store.createIndex("timestamp", "timestamp", { unique: false });
+      }
+    };
+  });
+}
+
+// Call this when the extension loads
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    await initDB();
+    updateNumberCount();
+  } catch (error) {
+    console.error("Failed to initialize database:", error);
+  }
+});
+
 // Toggle functionality
 document.getElementById('extractorToggle').addEventListener('click', () => {
   document.getElementById('extractorToggle').classList.add('active');
@@ -89,124 +137,170 @@ document.getElementById("copy").addEventListener("click", () => {
   }
 });
 
-// Message history database functions
+// Save message to IndexedDB
 function saveMessageHistory(phoneNumber, message) {
-  const timestamp = new Date().toISOString();
+  return new Promise((resolve, reject) => {
+    const timestamp = new Date().toISOString();
+    const transaction = db.transaction(["messageHistory"], "readwrite");
+    const store = transaction.objectStore("messageHistory");
 
-  chrome.storage.local.get(['messageHistory'], (result) => {
-    const history = result.messageHistory || [];
-    history.push({
+    const record = {
       phoneNumber,
       message,
       timestamp,
       status: 'sent'
-    });
+    };
 
-    chrome.storage.local.set({ messageHistory: history }, () => {
+    const request = store.add(record);
+
+    request.onsuccess = () => {
       console.log('Message history updated');
-    });
+      resolve();
+    };
+
+    request.onerror = (event) => {
+      console.error("Error saving message:", event.target.error);
+      reject(event.target.error);
+    };
   });
 }
 
-// Function to filter out already contacted numbers
+// Filter already contacted numbers using IndexedDB
 function filterAlreadyContacted(numbers) {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['messageHistory'], (result) => {
-      const history = result.messageHistory || [];
-      const contactedNumbers = new Set(history.map(entry => entry.phoneNumber));
+    const transaction = db.transaction(["messageHistory"], "readonly");
+    const store = transaction.objectStore("messageHistory");
+    const index = store.index("phoneNumber");
+    const contactedNumbers = new Set();
 
-      const newNumbers = numbers.filter(number => !contactedNumbers.has(number));
-      resolve({
-        newNumbers,
-        alreadyContacted: numbers.length - newNumbers.length
-      });
-    });
+    // Get all unique phone numbers from history
+    const request = index.openCursor();
+
+    request.onsuccess = (event) => {
+      const cursor = event.target.result;
+      if (cursor) {
+        contactedNumbers.add(cursor.value.phoneNumber);
+        cursor.continue();
+      } else {
+        // All entries have been processed
+        const newNumbers = numbers.filter(number => !contactedNumbers.has(number));
+        resolve({
+          newNumbers,
+          alreadyContacted: numbers.length - newNumbers.length
+        });
+      }
+    };
+
+    request.onerror = (event) => {
+      console.error("Error filtering numbers:", event.target.error);
+      resolve({ newNumbers: numbers, alreadyContacted: 0 });
+    };
   });
 }
 
-// Function to export history to CSV
-function exportToCSV() {
-  chrome.storage.local.get(['messageHistory'], (result) => {
-    const history = result.messageHistory || [];
+// Export history to Excel
+function exportToExcel() {
+  const transaction = db.transaction(["messageHistory"], "readonly");
+  const store = transaction.objectStore("messageHistory");
+  const request = store.getAll();
+
+  request.onsuccess = (event) => {
+    const history = event.target.result;
+
     if (history.length === 0) {
       alert('No message history to export');
       return;
     }
 
-    // Create CSV content
-    const headers = ['Phone Number', 'Message', 'Timestamp', 'Status'];
-    const csvContent = [
-      headers.join(','),
-      ...history.map(entry => [
-        `"${entry.phoneNumber}"`,
-        `"${entry.message.replace(/"/g, '""')}"`,
-        `"${entry.timestamp}"`,
-        `"${entry.status}"`
-      ].join(','))
-    ].join('\n');
+    // Create workbook
+    const wb = XLSX.utils.book_new();
 
-    // Create download link
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `whatsapp_message_history_${new Date().toISOString().slice(0, 10)}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  });
+    // Format data for Excel
+    const data = history.map(entry => ({
+      'Phone Number': entry.phoneNumber,
+      'Message': entry.message,
+      'Timestamp': entry.timestamp,
+      'Status': entry.status
+    }));
+
+    // Convert to worksheet
+    const ws = XLSX.utils.json_to_sheet(data);
+
+    // Add worksheet to workbook
+    XLSX.utils.book_append_sheet(wb, ws, "Message History");
+
+    // Generate Excel file and trigger download
+    XLSX.writeFile(wb, "whatsapp_message_history.xlsx");
+  };
+
+  request.onerror = (event) => {
+    console.error("Error exporting history:", event.target.error);
+    alert('Failed to export message history');
+  };
 }
 
-// Function to clear message history
+// Clear message history from IndexedDB
 function clearMessageHistory() {
   if (confirm('Are you sure you want to clear all message history? This cannot be undone.')) {
-    chrome.storage.local.set({ messageHistory: [] }, () => {
+    const transaction = db.transaction(["messageHistory"], "readwrite");
+    const store = transaction.objectStore("messageHistory");
+    const request = store.clear();
+
+    request.onsuccess = () => {
       alert('Message history cleared successfully');
       logMessage('✅ Message history cleared');
-    });
+    };
+
+    request.onerror = (event) => {
+      console.error("Error clearing history:", event.target.error);
+      alert('Failed to clear message history');
+    };
   }
 }
 
 // Bulk Sender functionality
 function updateNumberCount() {
-  const numbers = parsePhoneNumbers(document.getElementById('numbers').value);
-  document.getElementById('numberCount').innerText = `Total Numbers: ${numbers.length}`;
+  const numbers = parsePhoneNumbers(document.getElementById('numbers')?.value || "");
+  if (document.getElementById('numberCount')) {
+    document.getElementById('numberCount').innerText = `Total Numbers: ${numbers.length}`;
+  }
 }
 
-document.getElementById('numbers').addEventListener('input', updateNumberCount);
+document.getElementById('numbers')?.addEventListener('input', updateNumberCount);
 
-// Add filter, export, and clear buttons to the DOM after the numberCount div
+// Add filter, export, and clear buttons to the DOM
 const numberCountDiv = document.getElementById('numberCount');
-const filterControlsDiv = document.createElement('div');
-filterControlsDiv.className = 'filter-controls';
-filterControlsDiv.innerHTML = `
-  <button id="filterContacted" class="blue-btn">Filter Already Contacted</button>
-  <button id="exportHistory" class="blue-btn">Export History to CSV</button>
-  <button id="clearHistory" class="blue-btn">Clear History</button>
-`;
-numberCountDiv.parentNode.insertBefore(filterControlsDiv, numberCountDiv.nextSibling);
+if (numberCountDiv) {
+  const filterControlsDiv = document.createElement('div');
+  filterControlsDiv.className = 'filter-controls';
+  filterControlsDiv.innerHTML = `
+    <button id="filterContacted" class="blue-btn">Filter Already Contacted</button>
+    <button id="exportHistory" class="blue-btn">Export to Excel</button>
+    <button id="clearHistory" class="blue-btn">Clear History</button>
+  `;
+  numberCountDiv.parentNode.insertBefore(filterControlsDiv, numberCountDiv.nextSibling);
 
-// Add CSS for the new controls
-const style = document.createElement('style');
-style.textContent = `
-.filter-controls {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
+  // Add CSS for the controls
+  const style = document.createElement('style');
+  style.textContent = `
+  .filter-controls {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
 
-.filter-controls button {
-  flex: 1;
-  margin: 0 3px;
-  font-size: 11px;
-  padding: 6px 3px;
+  .filter-controls button {
+    flex: 1;
+    margin: 0 3px;
+    font-size: 11px;
+    padding: 6px 3px;
+  }
+  `;
+  document.head.appendChild(style);
 }
-`;
-document.head.appendChild(style);
 
 // Filter already contacted numbers
-document.getElementById('filterContacted').addEventListener('click', async () => {
+document.getElementById('filterContacted')?.addEventListener('click', async () => {
   const numbersText = document.getElementById('numbers').value;
   if (!numbersText.trim()) {
     alert("Please enter phone numbers first");
@@ -231,11 +325,11 @@ document.getElementById('filterContacted').addEventListener('click', async () =>
   }
 });
 
-// Export history to CSV
-document.getElementById('exportHistory').addEventListener('click', exportToCSV);
+// Export history to Excel
+document.getElementById('exportHistory')?.addEventListener('click', exportToExcel);
 
 // Clear message history
-document.getElementById('clearHistory').addEventListener('click', clearMessageHistory);
+document.getElementById('clearHistory')?.addEventListener('click', clearMessageHistory);
 
 const logContainer = document.getElementById('status');
 const failedNumbersContainer = document.getElementById('failedNumbers');
@@ -324,8 +418,92 @@ chrome.runtime.onMessage.addListener((request) => {
   }
 });
 
+// Content script function for sending WhatsApp messages
+function sendWhatsAppMessage(message, phoneNumber) {
+  // Reset the flag for each new message attempt
+  window.scriptAlreadyExecuted = false;
+
+  if (window.scriptAlreadyExecuted) return false;
+  window.scriptAlreadyExecuted = true;
+
+  function sendLogToPopup(text) {
+    chrome.runtime.sendMessage({ log: text });
+  }
+
+  function reportFailedNumber(number) {
+    chrome.runtime.sendMessage({ failedNumber: number });
+  }
+
+  sendLogToPopup("⏳ Waiting for WhatsApp chat to load...");
+
+  return new Promise(async (resolve) => {
+    let retries = 10;
+    let messageInput;
+
+    // Check for invalid number page
+    const invalidNumberCheck = () => {
+      return (
+        document.querySelector('div[data-animate-modal-body="true"]') ||
+        document.querySelector('div._3J6wB') ||
+        document.body.textContent.includes('Phone number shared via url is invalid')
+      );
+    };
+
+    // Wait for either the chat to load or an error to appear
+    while (retries > 0) {
+      messageInput = document.querySelector(
+        'div[contenteditable="true"][aria-label="Type a message"]'
+      );
+
+      // Check for invalid number error
+      if (invalidNumberCheck()) {
+        sendLogToPopup(`❌ Invalid phone number: ${phoneNumber}`);
+        reportFailedNumber(phoneNumber);
+        resolve(false);
+        return;
+      }
+
+      if (messageInput) break;
+
+      // Wait for a short period before retrying
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      retries--;
+    }
+
+    if (!messageInput) {
+      sendLogToPopup(`❌ Message input box not found for: ${phoneNumber}`);
+      reportFailedNumber(phoneNumber);
+      resolve(false);
+      return;
+    }
+
+    sendLogToPopup('✅ Chat loaded. Typing message...');
+    messageInput.innerHTML = '';
+    messageInput.focus();
+    document.execCommand('insertText', false, message);
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    sendLogToPopup('✅ Message typed. Sending...');
+
+    messageInput.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        keyCode: 13,
+        which: 13,
+        bubbles: true,
+      })
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    sendLogToPopup(`✅ Message sent to ${phoneNumber}`);
+    resolve(true);
+  });
+}
+
 // Main function for sending messages
-document.getElementById('start').addEventListener('click', async () => {
+document.getElementById('start')?.addEventListener('click', async () => {
+  console.log("Start button clicked"); // Debug log
   const startButton = document.getElementById('start');
 
   // Change button color to red and text to indicate process is running
@@ -388,9 +566,9 @@ document.getElementById('start').addEventListener('click', async () => {
       }
 
       let tabId = tabs[0].id;
-      let attemptedCount = 0;  // Total messages attempted
-      let successCount = 0;    // Successfully sent messages
-      let failedCount = 0;     // Failed messages
+      let attemptedCount = 0; // Total messages attempted
+      let successCount = 0;   // Successfully sent messages
+      let failedCount = 0;    // Failed messages
 
       try {
         for (let i = 0; i < numbers.length; i++) {
@@ -400,7 +578,9 @@ document.getElementById('start').addEventListener('click', async () => {
           logMessage(`⏳ Opening chat for: ${number}...`);
           chrome.tabs.update(tabId, { url: whatsappURL });
 
-          await new Promise(resolve => setTimeout(resolve, 8000));
+          // Wait for WhatsApp Web to load
+          await new Promise(resolve => setTimeout(resolve, 10000));
+
           const result = await chrome.scripting.executeScript({
             target: { tabId: tabId },
             args: [decodeURIComponent(message), number],
@@ -413,13 +593,19 @@ document.getElementById('start').addEventListener('click', async () => {
           if (success === false) {
             // Message failed to send
             failedCount++;
+            addFailedNumber(number);
+            logMessage(`❌ Failed to send message to ${number}`);
           } else {
             // Message sent successfully
             successCount++;
 
-            // Save message history
+            // Save message history to IndexedDB
             const decodedMessage = decodeURIComponent(message);
-            saveMessageHistory(number, decodedMessage);
+            try {
+              await saveMessageHistory(number, decodedMessage);
+            } catch (error) {
+              console.error("Failed to save message history:", error);
+            }
           }
 
           // Update progress with accurate counts
@@ -444,12 +630,11 @@ document.getElementById('start').addEventListener('click', async () => {
 
         // Final progress update to ensure accuracy
         document.getElementById('progress').firstElementChild.innerText =
-          `Sent: ${successCount} | Remaining: 0`;
+          `Sent: ${successCount} | Remaining: ${totalCount - attemptedCount}`;
 
         // Completion message
         if (failedCount > 0) {
           logMessage(`🎉 ✅ Process complete! ${successCount} sent, ${failedCount} failed.`);
-          // Highlight the failed tab
           document.getElementById('failedTab').style.color = '#ff6b6b';
         } else {
           logMessage('🎉 ✅ All messages sent successfully!');
@@ -466,85 +651,3 @@ document.getElementById('start').addEventListener('click', async () => {
   }
 });
 
-// Content script functions
-function sendWhatsAppMessage(message, phoneNumber) {
-
-  if (window.scriptAlreadyExecuted) return false;
-  window.scriptAlreadyExecuted = true;
-
-  function sendLogToPopup(text) {
-    chrome.runtime.sendMessage({ log: text });
-  }
-
-  function reportFailedNumber(number) {
-    chrome.runtime.sendMessage({ failedNumber: number });
-  }
-
-  sendLogToPopup("⏳ Waiting for WhatsApp chat to load...");
-
-  return new Promise(async (resolve) => {
-    let retries = 10;
-    let messageInput;
-
-    // Check for invalid number page
-    const invalidNumberCheck = () => {
-      return (
-        document.querySelector('div[data-animate-modal-body="true"]') ||
-        document.querySelector('div._3J6wB') ||
-        document.body.textContent.includes('Phone number shared via url is invalid')
-      );
-    };
-
-    // Wait for either the chat to load or an error to appear
-    while (retries > 0) {
-      messageInput = document.querySelector(
-        'div[contenteditable="true"][aria-label="Type a message"]'
-      );
-
-      // Check for invalid number error
-      if (invalidNumberCheck()) {
-        sendLogToPopup(`❌ Invalid phone number: ${phoneNumber}`);
-        reportFailedNumber(phoneNumber);
-        resolve(false);
-        return;
-      }
-
-      if (messageInput) break;
-
-      // Wait for a short period before retrying
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      retries--;
-    }
-
-    if (!messageInput) {
-      sendLogToPopup(`❌ Message input box not found for: ${phoneNumber}`);
-      reportFailedNumber(phoneNumber);
-      resolve(false);
-      return;
-    }
-
-    sendLogToPopup('✅ Chat loaded. Typing message...');
-    messageInput.innerHTML = ''; // Clear any existing content
-    messageInput.focus();
-    document.execCommand('insertText', false, message); // Insert the message text
-    await new Promise((resolve) => setTimeout(resolve, 800)); // Wait briefly after typing
-
-    sendLogToPopup('✅ Message typed. Sending...');
-
-    // Simulate pressing the Enter key to send the message
-    messageInput.dispatchEvent(
-      new KeyboardEvent('keydown', {
-        key: 'Enter',
-        code: 'Enter',
-        keyCode: 13,
-        which: 13,
-        bubbles: true,
-      })
-    );
-
-    await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait briefly after sending
-
-    sendLogToPopup(`✅ Message sent to ${phoneNumber}`);
-    resolve(true); // Indicate success
-  });
-}
