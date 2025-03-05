@@ -1,12 +1,18 @@
 {
-    "manifest_version": 3,
-    "name": "WhatsApp Tools",
-    "version": "1.0",
-    "description": "Extract phone numbers and send bulk messages on WhatsApp",
-    "permissions": ["activeTab", "scripting", "clipboardWrite"],
-    "host_permissions": ["https://web.whatsapp.com/*"],
-    "action": {
-      "default_popup": "popup.html"
-    }
+  "manifest_version": 3,
+  "name": "WhatsApp Tools",
+  "version": "1.0",
+  "description": "Extract phone numbers and send bulk messages on WhatsApp",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "clipboardWrite",
+    "storage"
+  ],
+    "host_permissions": [
+    "https://web.whatsapp.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
   }
-  
+}

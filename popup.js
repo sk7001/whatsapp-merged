@@ -28,15 +28,21 @@ document.getElementById('failedTab').addEventListener('click', () => {
   document.getElementById('status').classList.remove('active');
 });
 
+// Helper function for parsing phone numbers
+function parsePhoneNumbers(text) {
+  return text
+    .split(/[\n,]+/)
+    .map(num => num.trim().replace(/[^0-9+]/g, ''))
+    .filter(num => num.length > 0);
+}
+
 // Transfer button functionality
 document.getElementById('transferToSender').addEventListener('click', () => {
   const extractedContent = document.getElementById('content').innerText;
   if (extractedContent && extractedContent !== "Click \"Extract\" to get numbers." &&
     extractedContent !== "No numbers found!" && extractedContent !== "Div not found on this page.") {
     document.getElementById('numbers').value = extractedContent;
-    // Switch to sender tab
     document.getElementById('senderToggle').click();
-    // Update number count
     updateNumberCount();
   } else {
     alert("No numbers to transfer!");
@@ -62,10 +68,7 @@ function extractNumbers() {
 
   if (div) {
     let extractedContent = div.innerText;
-    
-    // Extract phone numbers with optional "+" at the start
     let phoneNumbers = extractedContent.match(/\+?\d{1,3} \d{5} \d{5}/g);
-    
     return phoneNumbers ? phoneNumbers.join("\n") : "No numbers found!";
   } else {
     return "Div not found on this page.";
@@ -86,16 +89,153 @@ document.getElementById("copy").addEventListener("click", () => {
   }
 });
 
+// Message history database functions
+function saveMessageHistory(phoneNumber, message) {
+  const timestamp = new Date().toISOString();
+
+  chrome.storage.local.get(['messageHistory'], (result) => {
+    const history = result.messageHistory || [];
+    history.push({
+      phoneNumber,
+      message,
+      timestamp,
+      status: 'sent'
+    });
+
+    chrome.storage.local.set({ messageHistory: history }, () => {
+      console.log('Message history updated');
+    });
+  });
+}
+
+// Function to filter out already contacted numbers
+function filterAlreadyContacted(numbers) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['messageHistory'], (result) => {
+      const history = result.messageHistory || [];
+      const contactedNumbers = new Set(history.map(entry => entry.phoneNumber));
+
+      const newNumbers = numbers.filter(number => !contactedNumbers.has(number));
+      resolve({
+        newNumbers,
+        alreadyContacted: numbers.length - newNumbers.length
+      });
+    });
+  });
+}
+
+// Function to export history to CSV
+function exportToCSV() {
+  chrome.storage.local.get(['messageHistory'], (result) => {
+    const history = result.messageHistory || [];
+    if (history.length === 0) {
+      alert('No message history to export');
+      return;
+    }
+
+    // Create CSV content
+    const headers = ['Phone Number', 'Message', 'Timestamp', 'Status'];
+    const csvContent = [
+      headers.join(','),
+      ...history.map(entry => [
+        `"${entry.phoneNumber}"`,
+        `"${entry.message.replace(/"/g, '""')}"`,
+        `"${entry.timestamp}"`,
+        `"${entry.status}"`
+      ].join(','))
+    ].join('\n');
+
+    // Create download link
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `whatsapp_message_history_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  });
+}
+
+// Function to clear message history
+function clearMessageHistory() {
+  if (confirm('Are you sure you want to clear all message history? This cannot be undone.')) {
+    chrome.storage.local.set({ messageHistory: [] }, () => {
+      alert('Message history cleared successfully');
+      logMessage('✅ Message history cleared');
+    });
+  }
+}
+
 // Bulk Sender functionality
 function updateNumberCount() {
-  const numbers = document.getElementById('numbers').value
-    .split(/[\n,]+/)
-    .map(num => num.trim().replace(/[^0-9+]/g, ''))
-    .filter(num => num.length > 0);
+  const numbers = parsePhoneNumbers(document.getElementById('numbers').value);
   document.getElementById('numberCount').innerText = `Total Numbers: ${numbers.length}`;
 }
 
 document.getElementById('numbers').addEventListener('input', updateNumberCount);
+
+// Add filter, export, and clear buttons to the DOM after the numberCount div
+const numberCountDiv = document.getElementById('numberCount');
+const filterControlsDiv = document.createElement('div');
+filterControlsDiv.className = 'filter-controls';
+filterControlsDiv.innerHTML = `
+  <button id="filterContacted" class="blue-btn">Filter Already Contacted</button>
+  <button id="exportHistory" class="blue-btn">Export History to CSV</button>
+  <button id="clearHistory" class="blue-btn">Clear History</button>
+`;
+numberCountDiv.parentNode.insertBefore(filterControlsDiv, numberCountDiv.nextSibling);
+
+// Add CSS for the new controls
+const style = document.createElement('style');
+style.textContent = `
+.filter-controls {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.filter-controls button {
+  flex: 1;
+  margin: 0 3px;
+  font-size: 11px;
+  padding: 6px 3px;
+}
+`;
+document.head.appendChild(style);
+
+// Filter already contacted numbers
+document.getElementById('filterContacted').addEventListener('click', async () => {
+  const numbersText = document.getElementById('numbers').value;
+  if (!numbersText.trim()) {
+    alert("Please enter phone numbers first");
+    return;
+  }
+
+  const numbers = parsePhoneNumbers(numbersText);
+  const result = await filterAlreadyContacted(numbers);
+
+  if (result.alreadyContacted > 0) {
+    if (result.newNumbers.length === 0) {
+      alert(`All ${numbers.length} numbers have been contacted before.`);
+    } else {
+      if (confirm(`${result.alreadyContacted} numbers have been contacted before. Remove them from the list?`)) {
+        document.getElementById('numbers').value = result.newNumbers.join('\n');
+        updateNumberCount();
+        logMessage(`✅ Removed ${result.alreadyContacted} previously contacted numbers.`);
+      }
+    }
+  } else {
+    alert("None of these numbers have been contacted before.");
+  }
+});
+
+// Export history to CSV
+document.getElementById('exportHistory').addEventListener('click', exportToCSV);
+
+// Clear message history
+document.getElementById('clearHistory').addEventListener('click', clearMessageHistory);
 
 const logContainer = document.getElementById('status');
 const failedNumbersContainer = document.getElementById('failedNumbers');
@@ -131,7 +271,7 @@ function addFailedNumber(number) {
         .filter(child => child.className === 'number-entry')
         .map(child => child.firstChild.textContent.trim())
         .join('\n');
-      
+
       if (allNumbers) {
         navigator.clipboard.writeText(allNumbers).then(() => {
           copyAllBtn.textContent = '✓ Copied!';
@@ -193,10 +333,7 @@ document.getElementById('start').addEventListener('click', async () => {
   startButton.textContent = 'Sending...';
   startButton.disabled = true; // Optionally disable the button while sending
 
-  const numbers = document.getElementById('numbers').value
-    .split(/[\n,]+/)
-    .map(num => num.trim().replace(/[^0-9+]/g, ''))
-    .filter(num => num.length > 0);
+  const numbers = parsePhoneNumbers(document.getElementById('numbers').value);
   const message = encodeURIComponent(document.getElementById('message').value.trim());
 
   if (numbers.length === 0 || !message) {
@@ -263,8 +400,7 @@ document.getElementById('start').addEventListener('click', async () => {
           logMessage(`⏳ Opening chat for: ${number}...`);
           chrome.tabs.update(tabId, { url: whatsappURL });
 
-          await new Promise((resolve) => setTimeout(resolve, 8000));
-
+          await new Promise(resolve => setTimeout(resolve, 8000));
           const result = await chrome.scripting.executeScript({
             target: { tabId: tabId },
             args: [decodeURIComponent(message), number],
@@ -280,6 +416,10 @@ document.getElementById('start').addEventListener('click', async () => {
           } else {
             // Message sent successfully
             successCount++;
+
+            // Save message history
+            const decodedMessage = decodeURIComponent(message);
+            saveMessageHistory(number, decodedMessage);
           }
 
           // Update progress with accurate counts
@@ -288,7 +428,7 @@ document.getElementById('start').addEventListener('click', async () => {
           updateRemainingTime();
 
           if (i < numbers.length - 1) {
-            await new Promise((resolve) => setTimeout(resolve, 5000));
+            await new Promise(resolve => setTimeout(resolve, 5000));
           }
         }
       } catch (error) {
@@ -328,6 +468,7 @@ document.getElementById('start').addEventListener('click', async () => {
 
 // Content script functions
 function sendWhatsAppMessage(message, phoneNumber) {
+
   if (window.scriptAlreadyExecuted) return false;
   window.scriptAlreadyExecuted = true;
 
@@ -369,7 +510,9 @@ function sendWhatsAppMessage(message, phoneNumber) {
       }
 
       if (messageInput) break;
-      await new Promise((r) => setTimeout(r, 400));
+
+      // Wait for a short period before retrying
+      await new Promise((resolve) => setTimeout(resolve, 400));
       retries--;
     }
 
@@ -381,13 +524,14 @@ function sendWhatsAppMessage(message, phoneNumber) {
     }
 
     sendLogToPopup('✅ Chat loaded. Typing message...');
-    messageInput.innerHTML = '';
+    messageInput.innerHTML = ''; // Clear any existing content
     messageInput.focus();
-    document.execCommand('insertText', false, message);
-    await new Promise((r) => setTimeout(r, 800));
+    document.execCommand('insertText', false, message); // Insert the message text
+    await new Promise((resolve) => setTimeout(resolve, 800)); // Wait briefly after typing
 
     sendLogToPopup('✅ Message typed. Sending...');
 
+    // Simulate pressing the Enter key to send the message
     messageInput.dispatchEvent(
       new KeyboardEvent('keydown', {
         key: 'Enter',
@@ -398,9 +542,9 @@ function sendWhatsAppMessage(message, phoneNumber) {
       })
     );
 
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait briefly after sending
 
     sendLogToPopup(`✅ Message sent to ${phoneNumber}`);
-    resolve(true);
+    resolve(true); // Indicate success
   });
 }
