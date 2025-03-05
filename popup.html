@@ -259,6 +259,11 @@
             cursor: pointer;
             color: #aaa;
         }
+
+        .red-btn {
+            background: #ff4d4d;
+            /* Red color */
+        }
     </style>
 
 </head>
@@ -274,10 +279,12 @@
     <div id="extractorTool" class="tool-container active">
         <h2>Extracted Numbers</h2>
         <button id="extract" class="green-btn">Extract</button>
+        <button id="clear" class="red-btn">Clear</button>
         <div id="content">Click "Extract" to get numbers.</div>
         <button id="copy" class="blue-btn">Copy to Clipboard</button>
         <button id="transferToSender" class="blue-btn">Transfer to Bulk Sender</button>
     </div>
+
 
     <!-- Bulk Sender Tool -->
     <div id="senderTool" class="tool-container">

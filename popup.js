@@ -46,6 +46,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
+document.getElementById("clear").addEventListener("click", () => {
+  document.getElementById("content").innerText = "Click \"Extract\" to get numbers.";
+});
+
 // Toggle functionality
 document.getElementById('extractorToggle').addEventListener('click', () => {
   document.getElementById('extractorToggle').classList.add('active');
@@ -276,7 +280,7 @@ if (numberCountDiv) {
   filterControlsDiv.innerHTML = `
     <button id="filterContacted" class="blue-btn">Filter Already Contacted</button>
     <button id="exportHistory" class="blue-btn">Export to Excel</button>
-    <button id="clearHistory" class="blue-btn">Clear History</button>
+    <button id="clearHistory" class="red-btn">Clear History</button>
   `;
   numberCountDiv.parentNode.insertBefore(filterControlsDiv, numberCountDiv.nextSibling);
 
