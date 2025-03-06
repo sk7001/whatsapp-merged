@@ -39,6 +39,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   try {
     await initDB();
     updateNumberCount();
+    failedNumbersContainer.textContent = 'No failed numbers yet.';
   } catch (error) {
     console.error("Failed to initialize database:", error);
   }
@@ -416,6 +417,7 @@ chrome.runtime.onMessage.addListener((request) => {
   if (request.log) {
     logMessage(request.log);
   }
+
   if (request.failedNumber) {
     addFailedNumber(request.failedNumber);
   }
@@ -508,8 +510,9 @@ function sendWhatsAppMessage(message, phoneNumber) {
 // Main function for sending messages
 document.getElementById('start')?.addEventListener('click', async () => {
   console.log("Start button clicked"); // Debug log
-  const startButton = document.getElementById('start');
 
+  const startButton = document.getElementById("start");
+  startButton.style.backgroundColor = "#ff4d4d";
   // Create container for pause and stop buttons
   const controlButtonsContainer = document.createElement('div');
   controlButtonsContainer.id = 'controlButtons';
@@ -539,43 +542,6 @@ document.getElementById('start')?.addEventListener('click', async () => {
   startButton.style.display = 'none';
   startButton.parentNode.insertBefore(controlButtonsContainer, startButton.nextSibling);
 
-  // Initialize flags
-  window.sendingPaused = false;
-  window.sendingStopped = false;
-
-  pauseButton.addEventListener('click', () => {
-    if (window.sendingPaused) {
-      // Resume sending
-      window.sendingPaused = false;
-      pauseButton.textContent = 'Pause';
-      pauseButton.className = 'blue-btn';
-      logMessage('▶️ Sending resumed');
-    } else {
-      // Pause sending
-      window.sendingPaused = true;
-      pauseButton.textContent = 'Resume';
-      pauseButton.className = 'green-btn';
-      logMessage('⏸️ Sending paused');
-    }
-  });
-
-  // Stop button event listener
-  stopButton.addEventListener('click', () => {
-    window.sendingStopped = true;
-    logMessage('⏹️ Sending stopped by user');
-
-    // Remove control buttons and restore start button
-    controlButtonsContainer.remove();
-    startButton.style.display = 'block';
-    startButton.style.background = '#25D366';
-    startButton.textContent = 'Start Sending';
-    startButton.disabled = false;
-
-    // Reset timer
-    clearInterval(timerInterval);
-    timeRemainingEl.textContent = '00:00:00';
-  });
-
   const numbers = parsePhoneNumbers(document.getElementById('numbers').value);
   const message = encodeURIComponent(document.getElementById('message').value.trim());
 
@@ -597,157 +563,128 @@ document.getElementById('start')?.addEventListener('click', async () => {
   // Clear log container
   logContainer.textContent = '';
 
-  const totalCount = numbers.length;
-  const estimatedTimePerMessage = 8;
-  let totalRemainingTime = totalCount * estimatedTimePerMessage;
-
-  function updateRemainingTime() {
-    const hours = String(Math.floor(totalRemainingTime / 3600)).padStart(2, '0');
-    const minutes = String(Math.floor((totalRemainingTime % 3600) / 60)).padStart(2, '0');
-    const seconds = String(totalRemainingTime % 60).padStart(2, '0');
-    timeRemainingEl.textContent = `${hours}:${minutes}:${seconds}`;
-  }
-
-  updateRemainingTime();
-  document.getElementById('progress').firstElementChild.innerText = `Sent: 0 | Remaining: ${totalCount}`;
-
-  const timerInterval = setInterval(() => {
-    if (totalRemainingTime > 0 && !window.sendingPaused) {
-      totalRemainingTime--;
-      updateRemainingTime();
+  // Start sending via background script
+  chrome.runtime.sendMessage({
+    action: 'startSending',
+    numbers: numbers,
+    message: message
+  }, response => {
+    if (response && response.status === 'started') {
+      logMessage('✅ Started sending messages in background');
+      logMessage('You can close this popup, messages will continue to send');
     }
-  }, 1000);
+  });
 
-  try {
-    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
-      if (tabs.length === 0) {
-        logMessage('❌ No active tab found!');
-        // Reset button if no tab found
+  // Pause button event listener
+  pauseButton.addEventListener('click', () => {
+    const isPaused = pauseButton.textContent === 'Resume';
+    chrome.runtime.sendMessage({
+      action: 'pauseSending',
+      pause: !isPaused
+    }, response => {
+      if (response && response.status === 'paused') {
+        pauseButton.textContent = 'Resume';
+        pauseButton.className = 'green-btn';
+        logMessage('⏸️ Sending paused');
+      } else {
+        pauseButton.textContent = 'Pause';
+        pauseButton.className = 'blue-btn';
+        logMessage('▶️ Sending resumed');
+      }
+    });
+  });
+
+  // Stop button event listener
+  stopButton.addEventListener('click', () => {
+    chrome.runtime.sendMessage({
+      action: 'stopSending'
+    }, response => {
+      if (response && response.status === 'stopped') {
+        logMessage('⏹️ Sending stopped by user');
+
+        // Remove control buttons and restore start button
         controlButtonsContainer.remove();
         startButton.style.display = 'block';
         startButton.style.background = '#25D366';
         startButton.textContent = 'Start Sending';
         startButton.disabled = false;
-        clearInterval(timerInterval);
-        return;
       }
+    });
+  });
 
-      let tabId = tabs[0].id;
-      let attemptedCount = 0; // Total messages attempted
-      let successCount = 0;   // Successfully sent messages
-      let failedCount = 0;    // Failed messages
-
-      try {
-        for (let i = 0; i < numbers.length; i++) {
-          // Check if sending was stopped
-          if (window.sendingStopped) {
-            logMessage('⏹️ Sending process stopped');
-            break;
-          }
-
-          // If paused, wait until resumed
-          while (window.sendingPaused) {
-            await new Promise(resolve => setTimeout(resolve, 500));
-            // Check if stopped while paused
-            if (window.sendingStopped) {
-              logMessage('⏹️ Sending process stopped while paused');
-              break;
-            }
-          }
-
-          // If stopped while paused, break out of the loop
-          if (window.sendingStopped) {
-            break;
-          }
-
-          const number = numbers[i];
-          let whatsappURL = `https://web.whatsapp.com/send?phone=${number}&text=${message}`;
-
-          logMessage(`⏳ Opening chat for: ${number}...`);
-          chrome.tabs.update(tabId, { url: whatsappURL });
-
-          // Wait for WhatsApp Web to load
-          await new Promise(resolve => setTimeout(resolve, 10000));
-
-          const result = await chrome.scripting.executeScript({
-            target: { tabId: tabId },
-            args: [decodeURIComponent(message), number],
-            func: sendWhatsAppMessage,
-          });
-
-          const success = result[0]?.result;
-          attemptedCount++;
-
-          if (success === false) {
-            // Message failed to send
-            failedCount++;
-            addFailedNumber(number);
-            logMessage(`❌ Failed to send message to ${number}`);
-          } else {
-            // Message sent successfully
-            successCount++;
-
-            // Save message history to IndexedDB
-            const decodedMessage = decodeURIComponent(message);
-            try {
-              await saveMessageHistory(number, decodedMessage);
-            } catch (error) {
-              console.error("Failed to save message history:", error);
-            }
-          }
-
-          // Update progress with accurate counts
-          document.getElementById('progress').firstElementChild.innerText =
-            `Sent: ${successCount} | Remaining: ${totalCount - attemptedCount}`;
-
-          if (i < numbers.length - 1 && !window.sendingStopped) {
-            await new Promise(resolve => setTimeout(resolve, 5000));
-          }
-        }
-      } catch (error) {
-        logMessage(`❌ Error during sending: ${error.message}`);
-      } finally {
-        clearInterval(timerInterval);
-        timeRemainingEl.textContent = '00:00:00';
-
-        // Remove control buttons and restore start button if they still exist
-        const controlButtons = document.getElementById('controlButtons');
-        if (controlButtons) {
-          controlButtons.remove();
-        }
-
-        startButton.style.display = 'block';
-        startButton.style.background = '#25D366';
-        startButton.textContent = 'Start Sending';
-        startButton.disabled = false;
-
-        // Final progress update to ensure accuracy
+  // Set up status checking interval
+  const statusCheckInterval = setInterval(() => {
+    chrome.runtime.sendMessage({
+      action: 'getStatus'
+    }, response => {
+      if (response) {
         document.getElementById('progress').firstElementChild.innerText =
-          `Sent: ${successCount} | Remaining: ${totalCount - attemptedCount}`;
+          `Sent: ${response.successCount} | Remaining: ${response.totalCount - response.currentIndex}`;
 
-        // Completion message
-        if (window.sendingStopped) {
-          logMessage(`🛑 Process stopped by user. ${successCount} sent, ${failedCount} failed.`);
-        } else if (failedCount > 0) {
-          logMessage(`🎉 ✅ Process complete! ${successCount} sent, ${failedCount} failed.`);
-          document.getElementById('failedTab').style.color = '#ff6b6b';
-        } else {
-          logMessage('🎉 ✅ All messages sent successfully!');
+        if (!response.isRunning) {
+          // Process completed
+          clearInterval(statusCheckInterval);
+
+          // Remove control buttons and restore start button
+          const controlButtons = document.getElementById('controlButtons');
+          if (controlButtons) {
+            controlButtons.remove();
+          }
+
+          startButton.style.display = 'block';
+          startButton.style.background = '#25D366';
+          startButton.textContent = 'Start Sending';
+          startButton.disabled = false;
+
+          if (response.failedCount > 0) {
+            logMessage(`🎉 ✅ Process complete! ${response.successCount} sent, ${response.failedCount} failed.`);
+            document.getElementById('failedTab').style.color = '#ff6b6b';
+          } else if (response.successCount > 0) {
+            logMessage('🎉 ✅ All messages sent successfully!');
+          }
         }
       }
     });
-  } catch (error) {
-    logMessage(`❌ Error: ${error.message}`);
-    // Reset button if an error occurs
+  }, 2000);
+});
+
+// Add listener for messages from background script
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'log' && request.message) {
+    logMessage(request.message);
+  }
+
+  if (request.action === 'failedNumber' && request.number) {
+    addFailedNumber(request.number);
+  }
+
+  if (request.action === 'updateProgress') {
+    document.getElementById('progress').firstElementChild.innerText =
+      `Sent: ${request.successCount} | Remaining: ${request.totalCount - request.currentIndex}`;
+  }
+
+  if (request.action === 'saveHistory' && request.number && request.message) {
+    saveMessageHistory(request.number, request.message);
+  }
+
+  if (request.action === 'processComplete') {
+    // Process completed
     const controlButtons = document.getElementById('controlButtons');
     if (controlButtons) {
       controlButtons.remove();
     }
 
+    const startButton = document.getElementById('start');
     startButton.style.display = 'block';
     startButton.style.background = '#25D366';
     startButton.textContent = 'Start Sending';
     startButton.disabled = false;
-    clearInterval(timerInterval);
+
+    if (request.failedCount > 0) {
+      logMessage(`🎉 ✅ Process complete! ${request.successCount} sent, ${request.failedCount} failed.`);
+      document.getElementById('failedTab').style.color = '#ff6b6b';
+    } else if (request.successCount > 0) {
+      logMessage('🎉 ✅ All messages sent successfully!');
+    }
   }
 });

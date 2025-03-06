@@ -8,11 +8,14 @@
     "scripting",
     "clipboardWrite",
     "storage",
-    "downloads"
+    "tabs"
   ],
   "host_permissions": [
     "https://web.whatsapp.com/*"
   ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
     "default_popup": "popup.html"
   }
