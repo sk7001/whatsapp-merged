@@ -3,8 +3,6 @@ const dbName = "WhatsAppToolsDB";
 const dbVersion = 1;
 let db;
 
-console.log(typeof XLSX)
-
 // Initialize the database
 function initDB() {
   return new Promise((resolve, reject) => {
@@ -44,10 +42,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   } catch (error) {
     console.error("Failed to initialize database:", error);
   }
-});
-
-document.getElementById("clear").addEventListener("click", () => {
-  document.getElementById("content").innerText = "Click \"Extract\" to get numbers.";
 });
 
 // Toggle functionality
@@ -112,6 +106,11 @@ document.getElementById("extract").addEventListener("click", async () => {
     let extractedText = results[0].result || "No numbers found!";
     document.getElementById("content").innerText = extractedText;
   });
+});
+
+// Clear extracted numbers
+document.getElementById("clear").addEventListener("click", () => {
+  document.getElementById("content").innerText = "Click \"Extract\" to get numbers.";
 });
 
 // Content script function for extracting numbers
@@ -500,6 +499,7 @@ function sendWhatsAppMessage(message, phoneNumber) {
     );
 
     await new Promise((resolve) => setTimeout(resolve, 1000));
+
     sendLogToPopup(`✅ Message sent to ${phoneNumber}`);
     resolve(true);
   });
@@ -510,10 +510,71 @@ document.getElementById('start')?.addEventListener('click', async () => {
   console.log("Start button clicked"); // Debug log
   const startButton = document.getElementById('start');
 
-  // Change button color to red and text to indicate process is running
-  startButton.style.background = '#ff4d4d'; // Red color
-  startButton.textContent = 'Sending...';
-  startButton.disabled = true; // Optionally disable the button while sending
+  // Create container for pause and stop buttons
+  const controlButtonsContainer = document.createElement('div');
+  controlButtonsContainer.id = 'controlButtons';
+  controlButtonsContainer.style.display = 'flex';
+  controlButtonsContainer.style.justifyContent = 'space-between';
+  controlButtonsContainer.style.gap = '5px';
+
+  // Create pause button
+  const pauseButton = document.createElement('button');
+  pauseButton.id = 'pauseButton';
+  pauseButton.className = 'blue-btn';
+  pauseButton.textContent = 'Pause';
+  pauseButton.style.flex = '1';
+
+  // Create stop button
+  const stopButton = document.createElement('button');
+  stopButton.id = 'stopButton';
+  stopButton.className = 'red-btn';
+  stopButton.textContent = 'Stop';
+  stopButton.style.flex = '1';
+
+  // Add buttons to container
+  controlButtonsContainer.appendChild(pauseButton);
+  controlButtonsContainer.appendChild(stopButton);
+
+  // Replace start button with control buttons
+  startButton.style.display = 'none';
+  startButton.parentNode.insertBefore(controlButtonsContainer, startButton.nextSibling);
+
+  // Initialize flags
+  window.sendingPaused = false;
+  window.sendingStopped = false;
+
+  pauseButton.addEventListener('click', () => {
+    if (window.sendingPaused) {
+      // Resume sending
+      window.sendingPaused = false;
+      pauseButton.textContent = 'Pause';
+      pauseButton.className = 'blue-btn';
+      logMessage('▶️ Sending resumed');
+    } else {
+      // Pause sending
+      window.sendingPaused = true;
+      pauseButton.textContent = 'Resume';
+      pauseButton.className = 'green-btn';
+      logMessage('⏸️ Sending paused');
+    }
+  });
+
+  // Stop button event listener
+  stopButton.addEventListener('click', () => {
+    window.sendingStopped = true;
+    logMessage('⏹️ Sending stopped by user');
+
+    // Remove control buttons and restore start button
+    controlButtonsContainer.remove();
+    startButton.style.display = 'block';
+    startButton.style.background = '#25D366';
+    startButton.textContent = 'Start Sending';
+    startButton.disabled = false;
+
+    // Reset timer
+    clearInterval(timerInterval);
+    timeRemainingEl.textContent = '00:00:00';
+  });
 
   const numbers = parsePhoneNumbers(document.getElementById('numbers').value);
   const message = encodeURIComponent(document.getElementById('message').value.trim());
@@ -521,6 +582,8 @@ document.getElementById('start')?.addEventListener('click', async () => {
   if (numbers.length === 0 || !message) {
     alert("❌ Please enter at least one phone number and a message.");
     // Reset button if validation fails
+    controlButtonsContainer.remove();
+    startButton.style.display = 'block';
     startButton.style.background = '#25D366';
     startButton.textContent = 'Start Sending';
     startButton.disabled = false;
@@ -549,11 +612,9 @@ document.getElementById('start')?.addEventListener('click', async () => {
   document.getElementById('progress').firstElementChild.innerText = `Sent: 0 | Remaining: ${totalCount}`;
 
   const timerInterval = setInterval(() => {
-    if (totalRemainingTime > 0) {
+    if (totalRemainingTime > 0 && !window.sendingPaused) {
       totalRemainingTime--;
       updateRemainingTime();
-    } else {
-      clearInterval(timerInterval);
     }
   }, 1000);
 
@@ -562,6 +623,8 @@ document.getElementById('start')?.addEventListener('click', async () => {
       if (tabs.length === 0) {
         logMessage('❌ No active tab found!');
         // Reset button if no tab found
+        controlButtonsContainer.remove();
+        startButton.style.display = 'block';
         startButton.style.background = '#25D366';
         startButton.textContent = 'Start Sending';
         startButton.disabled = false;
@@ -576,6 +639,27 @@ document.getElementById('start')?.addEventListener('click', async () => {
 
       try {
         for (let i = 0; i < numbers.length; i++) {
+          // Check if sending was stopped
+          if (window.sendingStopped) {
+            logMessage('⏹️ Sending process stopped');
+            break;
+          }
+
+          // If paused, wait until resumed
+          while (window.sendingPaused) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            // Check if stopped while paused
+            if (window.sendingStopped) {
+              logMessage('⏹️ Sending process stopped while paused');
+              break;
+            }
+          }
+
+          // If stopped while paused, break out of the loop
+          if (window.sendingStopped) {
+            break;
+          }
+
           const number = numbers[i];
           let whatsappURL = `https://web.whatsapp.com/send?phone=${number}&text=${message}`;
 
@@ -615,9 +699,8 @@ document.getElementById('start')?.addEventListener('click', async () => {
           // Update progress with accurate counts
           document.getElementById('progress').firstElementChild.innerText =
             `Sent: ${successCount} | Remaining: ${totalCount - attemptedCount}`;
-          updateRemainingTime();
 
-          if (i < numbers.length - 1) {
+          if (i < numbers.length - 1 && !window.sendingStopped) {
             await new Promise(resolve => setTimeout(resolve, 5000));
           }
         }
@@ -627,7 +710,13 @@ document.getElementById('start')?.addEventListener('click', async () => {
         clearInterval(timerInterval);
         timeRemainingEl.textContent = '00:00:00';
 
-        // Reset button back to green
+        // Remove control buttons and restore start button if they still exist
+        const controlButtons = document.getElementById('controlButtons');
+        if (controlButtons) {
+          controlButtons.remove();
+        }
+
+        startButton.style.display = 'block';
         startButton.style.background = '#25D366';
         startButton.textContent = 'Start Sending';
         startButton.disabled = false;
@@ -637,7 +726,9 @@ document.getElementById('start')?.addEventListener('click', async () => {
           `Sent: ${successCount} | Remaining: ${totalCount - attemptedCount}`;
 
         // Completion message
-        if (failedCount > 0) {
+        if (window.sendingStopped) {
+          logMessage(`🛑 Process stopped by user. ${successCount} sent, ${failedCount} failed.`);
+        } else if (failedCount > 0) {
           logMessage(`🎉 ✅ Process complete! ${successCount} sent, ${failedCount} failed.`);
           document.getElementById('failedTab').style.color = '#ff6b6b';
         } else {
@@ -648,10 +739,15 @@ document.getElementById('start')?.addEventListener('click', async () => {
   } catch (error) {
     logMessage(`❌ Error: ${error.message}`);
     // Reset button if an error occurs
+    const controlButtons = document.getElementById('controlButtons');
+    if (controlButtons) {
+      controlButtons.remove();
+    }
+
+    startButton.style.display = 'block';
     startButton.style.background = '#25D366';
     startButton.textContent = 'Start Sending';
     startButton.disabled = false;
     clearInterval(timerInterval);
   }
 });
-
