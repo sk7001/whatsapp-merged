@@ -19,5 +19,15 @@
   "action": {
     "default_popup": "popup.html"
   },
-  "options_page": "privacy.html"
+  "options_page": "privacy.html",
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "documentation.html"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
 }
